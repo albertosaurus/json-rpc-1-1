@@ -255,35 +255,49 @@ module JsonRpcService
           arg_named = @args_named.delete argname
           arg_numbered = @args_named.delete i.to_s
           set_error(-32602, "You cannot set the parameter #{argname} both by name and position") and return if arg_named && arg_numbered
-          arg = (!@args_pos[i].nil? ? @args_pos[i] : (!arg_named.nil? ? arg_named : arg_numbered))
+          
+          # Get arg value
+          arg_pos = @args_pos[i]
+          if arg_pos == nil then
+            if arg_named == nil then
+              arg = arg_numbered
+            else
+              arg = arg_named
+            end
+          else
+            arg = arg_pos
+          end
+          
           # Type-check arg
-          case argtype
-          when 'bit'
-            set_error(-32602, "The arg #{argname} must be literally true or false (was #{arg.to_json})") and return unless arg == true || arg == false
-          when 'num'
-            if !arg.is_a?(Numeric)
-              if arg.is_a?(String) && (arg_conv = arg.to_i rescue nil).to_s == arg
-                arg = arg_conv
-              elsif arg.is_a?(String) && (arg_conv = arg.to_f rescue nil).to_s == arg
-                arg = arg_conv
-              else
-                set_error(-32602, "The arg #{argname} must be numeric (was #{arg.to_json})") 
-                return
+          unless arg.nil? #A nil is allowed for all argument types by the JSON spec.
+            case argtype
+            when 'bit'
+              set_error(-32602, "The arg #{argname} must be literally true or false (was #{arg.to_json})") and return unless arg == true || arg == false
+            when 'num'
+              if !arg.is_a?(Numeric)
+                if arg.is_a?(String) && (arg_conv = arg.to_i rescue nil).to_s == arg
+                  arg = arg_conv
+                elsif arg.is_a?(String) && (arg_conv = arg.to_f rescue nil).to_s == arg
+                  arg = arg_conv
+                else
+                  set_error(-32602, "The arg #{argname} must be numeric (was #{arg.to_json})") 
+                  return
+                end
               end
-            end
-          when 'str'
-            if !arg.is_a?(String)
-              if arg.is_a?(Numeric)
-                arg = arg.to_s
-              else
-                set_error(-32602, "The arg #{argname} must be a string (was #{arg.to_json})")
-                return
+            when 'str'
+              if !arg.is_a?(String)
+                if arg.is_a?(Numeric)
+                  arg = arg.to_s
+                else
+                  set_error(-32602, "The arg #{argname} must be a string (was #{arg.to_json})")
+                  return
+                end
               end
+            when 'arr'
+              set_error(-32602, "The arg #{argname} must be an array (was #{arg.to_json})") and return unless arg.is_a?(Array)
+            when 'obj'
+              set_error(-32602, "The arg #{argname} must be a JSON object (was #{arg.to_json})") and return unless arg.is_a?(Hash)
             end
-          when 'arr'
-            set_error(-32602, "The arg #{argname} must be an array (was #{arg.to_json})") and return unless arg.is_a?(Array)
-          when 'obj'
-            set_error(-32602, "The arg #{argname} must be a JSON object (was #{arg.to_json})") and return unless arg.is_a?(Hash)
           end
           # Set the positional arg
           @args_pos[i] ||= arg
@@ -306,6 +320,8 @@ module JsonRpcService
         return if @error
         begin
           @result = fun[:proc].call *@args_pos
+        rescue JsonRpcException => je
+          set_error je.error_id, je.message
         rescue Exception => e
           set_error -32603, e.message # + e.backtrace.join("\n")
         end
